@@ -430,9 +430,11 @@ impl Window {
             InvalidateRect(self.hwnd, ptr::null(), 1);
         }
     }
-    fn paint_to(&self, dc: HDC, rect: &RECT) {
+    fn paint(&self) {
         unsafe {
-            FillRect(dc, rect, self.theme.background_brush);
+            let mut paint: PAINTSTRUCT = mem::zeroed();
+            let dc = BeginPaint(self.hwnd, &mut paint);
+            FillRect(dc, &paint.rcPaint, self.theme.background_brush);
             let old_pen = SelectObject(dc, GetStockObject(DC_PEN));
             SetDCPenColor(dc, self.theme.text);
             MoveToEx(
@@ -447,13 +449,6 @@ impl Window {
                 scaled(54, self.dpi),
             );
             SelectObject(dc, old_pen);
-        }
-    }
-    fn paint(&self) {
-        unsafe {
-            let mut paint: PAINTSTRUCT = mem::zeroed();
-            let dc = BeginPaint(self.hwnd, &mut paint);
-            self.paint_to(dc, &paint.rcPaint);
             EndPaint(self.hwnd, &paint);
         }
     }
@@ -1468,12 +1463,6 @@ unsafe extern "system" fn wndproc(hwnd: HWND, message: u32, wparam: usize, lpara
                 window.paint();
                 return 0;
             }
-            WM_PRINTCLIENT => {
-                let mut rect: RECT = unsafe { mem::zeroed() };
-                unsafe { GetClientRect(hwnd, &mut rect) };
-                window.paint_to(wparam as HDC, &rect);
-                return 0;
-            }
             WM_ERASEBKGND => {
                 unsafe {
                     let mut rect: RECT = mem::zeroed();
@@ -1788,6 +1777,10 @@ mod tests {
     #[test]
     #[ignore = "Offline native visual review at 100%, 150% and 200% DPI"]
     fn render_layout_preview() {
+        #[link(name = "user32")]
+        unsafe extern "system" {
+            fn PrintWindow(hwnd: HWND, dc: HDC, flags: u32) -> i32;
+        }
         unsafe {
             SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
             let instance = GetModuleHandleW(ptr::null());
@@ -1898,12 +1891,7 @@ mod tests {
                     let capture = CreateCompatibleDC(dc);
                     let bitmap = CreateCompatibleBitmap(dc, width, height);
                     let old = SelectObject(capture, bitmap);
-                    SendMessageW(
-                        hwnd,
-                        WM_PRINT,
-                        capture as usize,
-                        (PRF_CLIENT | PRF_CHILDREN | PRF_ERASEBKGND) as isize,
-                    );
+                    assert_ne!(PrintWindow(hwnd, capture, 1), 0);
                     SelectObject(capture, old);
                     let mut info: BITMAPINFO = mem::zeroed();
                     info.bmiHeader.biSize = mem::size_of::<BITMAPINFOHEADER>() as u32;
