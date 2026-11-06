@@ -1,5 +1,7 @@
 # SYSU NetAuth
 
+> **Windows 界面迭代版**：本 fork 的新版界面和测试包位于 [`windows-resume-ui` 分支](https://github.com/Dre-art/sysu-netauth/tree/windows-resume-ui)，可在该分支查看介绍、下载方式及测试状态。当前 `main` 分支保留上游原版；以下说明对应上游版本。
+
 中山大学有线校园网自动认证客户端，支持 802.1X / EAP-MD5。Windows 和 macOS 提供图形界面，Linux 提供命令行；后台服务负责持续认证和断线重连。
 
 当前正式版为 **v0.7.0**，从 [GitHub](https://github.com/LoveElysia1314/sysu-netauth/releases/tag/v0.7.0) 或 [Gitee](https://gitee.com/LoveElysia1314/sysu-netauth/releases/tag/v0.7.0) 下载。
