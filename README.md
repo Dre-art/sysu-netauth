@@ -9,7 +9,7 @@
 ## 功能
 
 - 首页集中显示账号、认证操作和网络状态；网卡、通知及更新选项收纳在设置页。
-- 跟随系统切换浅色或深色主题，支持托盘状态与开机启动界面。
+- 暖白、深色与红色点缀的界面跟随系统主题切换，内置 Noto Serif SC 字体；支持托盘状态与开机启动界面。
 - 自动或手动选择有线网卡，后台响应重新认证并在断线后重试。
 - 支持认证状态通知、日志查看和检查上游版本更新。
 
@@ -17,7 +17,7 @@
 
 ## 下载与安装
 
-本分支目前提供 Windows 10/11 **x64 测试构建**。打开[已通过的 Windows 构建记录](https://github.com/Dre-art/sysu-netauth/actions/runs/42184253632)，下载 `windows-ui-preview-and-build`，解压后运行其中的 `SYSUNetAuth_windows_x64_Setup_v0.7.0.exe`。GitHub Actions 构建产物有保存期限，下载通常需要登录 GitHub。
+本分支目前提供 Windows 10/11 **x64 测试版**。前往 [Releases 发布页](https://github.com/Dre-art/sysu-netauth/releases)，下载最新 Windows 界面版的 `Setup.exe` 安装包。
 
 1. 运行安装包，按提示完成安装；安装和服务管理需要管理员权限。
 2. 打开程序，填写 NetID 和密码，点击“认证”。默认自动选择已连接的有线网卡。
@@ -28,6 +28,8 @@
 ## 账号与更新
 
 账户配置位于 `%ProgramData%\SYSUNetAuth\config.json`，其中包含明文凭据；系统和管理员账户可以访问。请勿分享该文件，也不要将密码提交到仓库。
+
+本分支内置的 Noto Serif SC 字体遵循 [SIL Open Font License 1.1](assets/fonts/OFL-NotoSerifSC.txt)，由程序私有加载，不会安装到系统字体目录。
 
 本分支保留了上游的更新检查来源；更新提示和发布说明指向上游项目，不代表本 fork 已发布新版。上游发布页中的安装包也不包含本分支的界面改动。
 

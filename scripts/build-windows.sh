@@ -48,8 +48,9 @@ mkdir -p "$dist/sysu_netauth"
 for executable in sysu_netauth sysu_netauth_service sysu_netauth_gui sysu_netauth_notify; do
     install -m755 "$build_dir/$executable.exe" "$dist/sysu_netauth/$executable.exe"
 done
-# zip only the four binaries; icons and the GUI manifest are embedded.
+# Include the bundled font's license alongside the binaries.
+install -m644 assets/fonts/OFL-NotoSerifSC.txt "$dist/sysu_netauth/OFL-NotoSerifSC.txt"
 archive=sysu-netauth-windows-$arch.zip
 rm -f "$dist/$archive"
-(cd "$dist" && zip -q -X "$archive" sysu_netauth/sysu_netauth.exe sysu_netauth/sysu_netauth_service.exe sysu_netauth/sysu_netauth_gui.exe sysu_netauth/sysu_netauth_notify.exe)
+(cd "$dist" && zip -q -X "$archive" sysu_netauth/sysu_netauth.exe sysu_netauth/sysu_netauth_service.exe sysu_netauth/sysu_netauth_gui.exe sysu_netauth/sysu_netauth_notify.exe sysu_netauth/OFL-NotoSerifSC.txt)
 echo "Windows release: $dist/$archive"

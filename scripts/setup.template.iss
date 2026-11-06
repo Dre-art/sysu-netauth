@@ -61,6 +61,7 @@ Source: "{#AppSourceDir}\sysu_netauth_service.exe"; DestDir: "{app}"; Flags: ign
 Source: "{#AppSourceDir}\sysu_netauth_gui.exe"; DestDir: "{app}"; Flags: ignoreversion restartreplace
 Source: "{#AppSourceDir}\sysu_netauth_notify.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\docs\WINDOWS.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\assets\fonts\OFL-NotoSerifSC.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 [Dirs]
 Name: "{app}"; Permissions: admins-full system-full users-readexec

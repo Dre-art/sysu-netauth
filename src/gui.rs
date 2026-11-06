@@ -62,6 +62,8 @@ const MENU_QUIT: u16 = 202;
 const MENU_RELEASE: u16 = 205;
 const CLIENT_WIDTH: i32 = 720;
 const CLIENT_HEIGHT: i32 = 456;
+const UI_FONT_NAME: &str = "Noto Serif SC";
+const UI_FONT_BYTES: &[u8] = include_bytes!("../assets/fonts/NotoSerifSC-Regular.ttf");
 
 #[derive(Clone, Copy)]
 enum Font {
@@ -117,7 +119,10 @@ struct Window {
     font: HFONT,
     heading_font: HFONT,
     brand_font: HFONT,
+    font_resource: HANDLE,
     theme: Theme,
+    brand: HWND,
+    brand_mark: HWND,
     brand_caption: HWND,
     status_brush: HBRUSH,
     status_color: COLORREF,
@@ -201,6 +206,15 @@ impl Window {
         startup: bool,
         ui: &serde_json::Value,
     ) -> Self {
+        let mut font_count = 0;
+        let font_resource = unsafe {
+            AddFontMemResourceEx(
+                UI_FONT_BYTES.as_ptr().cast(),
+                UI_FONT_BYTES.len() as u32,
+                ptr::null(),
+                &mut font_count,
+            )
+        };
         Self {
             hwnd,
             username: ptr::null_mut(),
@@ -227,7 +241,10 @@ impl Window {
             font: ptr::null_mut(),
             heading_font: ptr::null_mut(),
             brand_font: ptr::null_mut(),
+            font_resource,
             theme: Theme::system(),
+            brand: ptr::null_mut(),
+            brand_mark: ptr::null_mut(),
             brand_caption: ptr::null_mut(),
             status_brush: ptr::null_mut(),
             status_color: 0,
@@ -309,13 +326,22 @@ impl Window {
                     (&mut metrics.lfMessageFont as *mut LOGFONTW).cast(),
                 );
             }
-            copy_wide(&mut metrics.lfMessageFont.lfFaceName, "Microsoft YaHei UI");
+            copy_wide(
+                &mut metrics.lfMessageFont.lfFaceName,
+                if self.font_resource.is_null() {
+                    "Microsoft YaHei UI"
+                } else {
+                    UI_FONT_NAME
+                },
+            );
             metrics.lfMessageFont.lfHeight = -scaled(14, self.dpi);
             self.font = CreateFontIndirectW(&metrics.lfMessageFont);
             metrics.lfMessageFont.lfHeight = -scaled(16, self.dpi);
             metrics.lfMessageFont.lfWeight = FW_SEMIBOLD as i32;
             self.heading_font = CreateFontIndirectW(&metrics.lfMessageFont);
-            copy_wide(&mut metrics.lfMessageFont.lfFaceName, "Segoe UI");
+            if self.font_resource.is_null() {
+                copy_wide(&mut metrics.lfMessageFont.lfFaceName, "Segoe UI");
+            }
             metrics.lfMessageFont.lfHeight = -scaled(32, self.dpi);
             metrics.lfMessageFont.lfWeight = FW_BOLD as i32;
             self.brand_font = CreateFontIndirectW(&metrics.lfMessageFont);
@@ -336,6 +362,30 @@ impl Window {
                 };
                 SendMessageW(control.hwnd, WM_SETFONT, font as usize, 1);
             }
+            // Position the red punctuation against the actual selected font and DPI.
+            let dc = GetDC(self.hwnd);
+            let old = SelectObject(dc, self.brand_font);
+            let mut size: SIZE = mem::zeroed();
+            let label = wide("NetAuth");
+            GetTextExtentPoint32W(dc, label.as_ptr(), 7, &mut size);
+            SelectObject(dc, old);
+            ReleaseDC(self.hwnd, dc);
+            MoveWindow(
+                self.brand,
+                scaled(40, self.dpi),
+                scaled(22, self.dpi),
+                size.cx + scaled(1, self.dpi),
+                scaled(42, self.dpi),
+                1,
+            );
+            MoveWindow(
+                self.brand_mark,
+                scaled(40, self.dpi) + size.cx,
+                scaled(22, self.dpi),
+                scaled(20, self.dpi),
+                scaled(42, self.dpi),
+                1,
+            );
             for font in old_fonts {
                 if !font.is_null() {
                     DeleteObject(font);
@@ -420,7 +470,7 @@ impl Window {
             let dc = BeginPaint(self.hwnd, &mut paint);
             FillRect(dc, &paint.rcPaint, self.theme.background_brush);
             let old_pen = SelectObject(dc, GetStockObject(DC_PEN));
-            SetDCPenColor(dc, self.theme.border);
+            SetDCPenColor(dc, self.theme.text);
             MoveToEx(
                 dc,
                 scaled(40, self.dpi),
@@ -484,7 +534,9 @@ impl Window {
         }
     }
     fn build(&mut self) {
-        self.control("STATIC", "NetAuth.", SS_CENTERIMAGE, 40, 22, 240, 42, 0);
+        self.brand = self.control("STATIC", "NetAuth", SS_CENTERIMAGE, 40, 22, 140, 42, 0);
+        self.controls.last_mut().unwrap().font = Font::Brand;
+        self.brand_mark = self.control("STATIC", ".", SS_CENTERIMAGE, 180, 22, 20, 42, 0);
         self.controls.last_mut().unwrap().font = Font::Brand;
         self.brand_caption =
             self.control("STATIC", "校园网连接", SS_CENTERIMAGE, 42, 68, 220, 20, 0);
@@ -1431,6 +1483,9 @@ impl Drop for Window {
                     DeleteObject(object);
                 }
             }
+            if !self.font_resource.is_null() {
+                RemoveFontMemResourceEx(self.font_resource);
+            }
         }
     }
 }
@@ -1487,8 +1542,11 @@ unsafe extern "system" fn wndproc(hwnd: HWND, message: u32, wparam: usize, lpara
                         dc,
                         if is_status {
                             window.status_color
-                        } else if (control == window.brand_caption
-                            || control == window.status
+                        } else if (control == window.brand_mark || control == window.brand_caption)
+                            && !window.theme.high_contrast
+                        {
+                            window.theme.accent_text
+                        } else if (control == window.status
                             || window.muted_controls.contains(&control))
                             && !window.theme.high_contrast
                         {
@@ -1840,6 +1898,32 @@ mod tests {
             ));
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, (&mut *window as *mut Window) as isize);
             window.build();
+            assert!(
+                !window.font_resource.is_null(),
+                "bundled UI font did not load"
+            );
+            let dc = GetDC(hwnd);
+            let previous = SelectObject(dc, window.font);
+            let mut face = [0u16; 64];
+            let length = GetTextFaceW(dc, face.len() as i32, face.as_mut_ptr());
+            assert!(length > 0);
+            let face_length = face.iter().position(|&c| c == 0).unwrap_or(face.len());
+            assert_eq!(String::from_utf16_lossy(&face[..face_length]), UI_FONT_NAME);
+            let sample = wide("校园网认证");
+            let mut glyphs = [0u16; 5];
+            assert_ne!(
+                GetGlyphIndicesW(
+                    dc,
+                    sample.as_ptr(),
+                    5,
+                    glyphs.as_mut_ptr(),
+                    GGI_MARK_NONEXISTING_GLYPHS
+                ),
+                GDI_ERROR as u32
+            );
+            assert!(glyphs.iter().all(|&glyph| glyph != 0xffff));
+            SelectObject(dc, previous);
+            ReleaseDC(hwnd, dc);
             window.config.username = "demo".into();
             window.config.password = "preview-only".into();
             window.config.iface_mode = "manual".into();

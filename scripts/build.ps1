@@ -30,6 +30,7 @@ New-Item -ItemType Directory -Force $output | Out-Null
 foreach ($executable in 'sysu_netauth', 'sysu_netauth_service', 'sysu_netauth_gui', 'sysu_netauth_notify') {
     Copy-Item (Join-Path $releaseDir "$executable.exe") $output
 }
+Copy-Item (Join-Path $rustRoot 'assets/fonts/OFL-NotoSerifSC.txt') $output
 if (-not $SkipInstaller) {
     # Run the host CLI to read the version even when cross-compiling to ARM64.
     $versionLine = cargo run --locked --quiet --bin sysu_netauth -- --version
