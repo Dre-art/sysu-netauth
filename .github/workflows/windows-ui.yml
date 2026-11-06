@@ -1,0 +1,33 @@
+name: Windows UI build and preview
+
+on:
+  push:
+    branches: [windows-resume-ui]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-ui:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: ilammy/msvc-dev-cmd@v1
+      - run: cargo fmt --all --check
+      - run: cargo test --locked --lib
+      - name: Render offline previews at multiple DPI settings
+        run: cargo test --locked --lib gui::tests::render_layout_preview -- --ignored --nocapture
+      - name: Build Windows binaries and installer
+        run: ./scripts/build.ps1 -Target x86_64-pc-windows-msvc
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-ui-preview-and-build
+          path: |
+            dist/gui-preview/
+            dist/sysu_netauth/
+            dist/*Setup*.exe
+          if-no-files-found: error
