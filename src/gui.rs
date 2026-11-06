@@ -430,11 +430,9 @@ impl Window {
             InvalidateRect(self.hwnd, ptr::null(), 1);
         }
     }
-    fn paint(&self) {
+    fn paint_to(&self, dc: HDC, rect: &RECT) {
         unsafe {
-            let mut paint: PAINTSTRUCT = mem::zeroed();
-            let dc = BeginPaint(self.hwnd, &mut paint);
-            FillRect(dc, &paint.rcPaint, self.theme.background_brush);
+            FillRect(dc, rect, self.theme.background_brush);
             let old_pen = SelectObject(dc, GetStockObject(DC_PEN));
             SetDCPenColor(dc, self.theme.text);
             MoveToEx(
@@ -449,6 +447,13 @@ impl Window {
                 scaled(54, self.dpi),
             );
             SelectObject(dc, old_pen);
+        }
+    }
+    fn paint(&self) {
+        unsafe {
+            let mut paint: PAINTSTRUCT = mem::zeroed();
+            let dc = BeginPaint(self.hwnd, &mut paint);
+            self.paint_to(dc, &paint.rcPaint);
             EndPaint(self.hwnd, &paint);
         }
     }
@@ -552,7 +557,7 @@ impl Window {
         );
         self.auto_auth = self.control(
             "BUTTON",
-            "服务启动后自动认证",
+            "启动后自动认证",
             WS_TABSTOP | BS_AUTOCHECKBOX as u32,
             192,
             138,
@@ -607,7 +612,7 @@ impl Window {
         }
         self.login = self.control(
             "BUTTON",
-            "开机后启动界面程序",
+            "开机启动界面",
             WS_TABSTOP | BS_AUTOCHECKBOX as u32,
             28,
             272,
@@ -617,7 +622,7 @@ impl Window {
         );
         self.hidden = self.control(
             "BUTTON",
-            "开机后隐藏配置窗口",
+            "启动时隐藏窗口",
             WS_TABSTOP | BS_AUTOCHECKBOX as u32,
             192,
             272,
@@ -627,7 +632,7 @@ impl Window {
         );
         self.notify = self.control(
             "BUTTON",
-            "认证状态变化后通知",
+            "认证状态通知",
             WS_TABSTOP | BS_AUTOCHECKBOX as u32,
             28,
             302,
@@ -1463,6 +1468,12 @@ unsafe extern "system" fn wndproc(hwnd: HWND, message: u32, wparam: usize, lpara
                 window.paint();
                 return 0;
             }
+            WM_PRINTCLIENT => {
+                let mut rect: RECT = unsafe { mem::zeroed() };
+                unsafe { GetClientRect(hwnd, &mut rect) };
+                window.paint_to(wparam as HDC, &rect);
+                return 0;
+            }
             WM_ERASEBKGND => {
                 unsafe {
                     let mut rect: RECT = mem::zeroed();
@@ -1777,10 +1788,6 @@ mod tests {
     #[test]
     #[ignore = "Offline native visual review at 100%, 150% and 200% DPI"]
     fn render_layout_preview() {
-        #[link(name = "user32")]
-        unsafe extern "system" {
-            fn PrintWindow(hwnd: HWND, dc: HDC, flags: u32) -> i32;
-        }
         unsafe {
             SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
             let instance = GetModuleHandleW(ptr::null());
@@ -1891,7 +1898,12 @@ mod tests {
                     let capture = CreateCompatibleDC(dc);
                     let bitmap = CreateCompatibleBitmap(dc, width, height);
                     let old = SelectObject(capture, bitmap);
-                    assert_ne!(PrintWindow(hwnd, capture, 1), 0);
+                    SendMessageW(
+                        hwnd,
+                        WM_PRINT,
+                        capture as usize,
+                        (PRF_CLIENT | PRF_CHILDREN | PRF_ERASEBKGND) as isize,
+                    );
                     SelectObject(capture, old);
                     let mut info: BITMAPINFO = mem::zeroed();
                     info.bmiHeader.biSize = mem::size_of::<BITMAPINFOHEADER>() as u32;
