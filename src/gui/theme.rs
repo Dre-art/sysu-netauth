@@ -154,7 +154,15 @@ impl Theme {
         status_colors(self.dark, state)
     }
 
-    pub(super) fn rounded(&self, dc: HDC, rect: RECT, fill: COLORREF, border: COLORREF, dpi: u32) {
+    pub(super) fn rounded(
+        &self,
+        dc: HDC,
+        rect: RECT,
+        fill: COLORREF,
+        border: COLORREF,
+        radius: i32,
+        dpi: u32,
+    ) {
         unsafe {
             let old_brush = SelectObject(dc, GetStockObject(DC_BRUSH));
             let old_pen = SelectObject(dc, GetStockObject(DC_PEN));
@@ -166,8 +174,8 @@ impl Theme {
                 rect.top,
                 rect.right,
                 rect.bottom,
-                scaled(12, dpi),
-                scaled(12, dpi),
+                scaled(radius, dpi),
+                scaled(radius, dpi),
             );
             SelectObject(dc, old_brush);
             SelectObject(dc, old_pen);
@@ -233,6 +241,7 @@ impl Theme {
                     },
                     fill,
                     if hot { self.text } else { self.border },
+                    4,
                     dpi,
                 );
                 if checked {
@@ -278,6 +287,7 @@ impl Theme {
                     rect,
                     fill,
                     if primary { fill } else { self.border },
+                    12,
                     dpi,
                 );
                 if primary {
@@ -306,7 +316,7 @@ impl Theme {
     fn combo(&self, hwnd: HWND, dc: HDC, rect: RECT, dpi: u32) {
         let enabled = unsafe { IsWindowEnabled(hwnd) } != 0;
         let color = if enabled { self.text } else { self.muted };
-        self.rounded(dc, rect, self.field, self.border, dpi);
+        self.rounded(dc, rect, self.field, self.border, 12, dpi);
         let mut label_rect = rect;
         label_rect.left += scaled(7, dpi);
         label_rect.right -= scaled(28, dpi);

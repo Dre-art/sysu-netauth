@@ -435,6 +435,7 @@ impl Window {
                     self.rect(390, 132, 290, 267),
                     self.theme.panel,
                     self.theme.border,
+                    12,
                     self.dpi,
                 );
                 for (top, input) in [(193, self.username), (271, self.password)] {
@@ -447,6 +448,7 @@ impl Window {
                         } else {
                             self.theme.border
                         },
+                        12,
                         self.dpi,
                     );
                 }
@@ -1896,9 +1898,17 @@ mod tests {
                         SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
                     );
                     for (view, settings) in [("main", false), ("settings", true)] {
-                        window.show_settings(settings);
+                        SendMessageW(
+                            hwnd,
+                            WM_COMMAND,
+                            if settings { SETTINGS } else { BACK } as usize,
+                            0,
+                        );
                         assert_eq!(IsWindowVisible(window.username) != 0, !settings);
                         assert_eq!(IsWindowVisible(window.manual) != 0, settings);
+                        assert_eq!(text(window.username), "demo");
+                        assert_eq!(text(window.password), "preview-only");
+                        assert!(checked(window.manual));
                         RedrawWindow(
                             hwnd,
                             ptr::null(),
