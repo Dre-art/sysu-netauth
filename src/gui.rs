@@ -514,6 +514,9 @@ impl Window {
             21,
             0,
         );
+        unsafe {
+            SendMessageW(self.password, EM_SETPASSWORDCHAR, '●' as usize, 0);
+        }
         self.control(
             "BUTTON",
             "显示密码",
@@ -1854,6 +1857,21 @@ mod tests {
             };
             window.adapters = vec![adapter.clone()];
             window.populate();
+            let show_password = GetDlgItem(hwnd, SHOW_PASSWORD as i32);
+            for visible in [true, false] {
+                check(show_password, visible);
+                SendMessageW(
+                    hwnd,
+                    WM_COMMAND,
+                    SHOW_PASSWORD as usize,
+                    show_password as isize,
+                );
+                assert_eq!(
+                    SendMessageW(window.password, EM_GETPASSWORDCHAR, 0, 0) == 0,
+                    visible
+                );
+                assert_eq!(text(window.password), "preview-only");
+            }
             window.notified_version = "99.0.0".into();
             window.update_snapshot(Snapshot {
                 state: State::Authenticated,
