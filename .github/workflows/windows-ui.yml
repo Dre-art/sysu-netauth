@@ -19,17 +19,16 @@ jobs:
       - uses: ilammy/msvc-dev-cmd@v1
       - run: cargo fmt --all --check
       - run: cargo test --locked --lib
-      - name: Fit the preview window on the CI desktop
-        run: ./scripts/windows/preview-display.ps1
-      - name: Render offline previews at multiple DPI settings
+      - name: Render offline interface previews
         run: cargo test --locked --lib gui::tests::render_layout_preview -- --ignored --nocapture
       - name: Build Windows binaries and installer
         run: ./scripts/build.ps1 -Target x86_64-pc-windows-msvc
       - uses: actions/upload-artifact@v4
         with:
           name: windows-ui-preview-and-build
+          # The hosted desktop is too small to capture the full 150%/200% window.
           path: |
-            dist/gui-preview/
+            dist/gui-preview/windows-*-96.bmp
             dist/sysu_netauth/
             dist/*Setup*.exe
           if-no-files-found: error
