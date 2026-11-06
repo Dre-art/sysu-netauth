@@ -147,25 +147,13 @@ impl Theme {
         status_colors(self.dark, state)
     }
 
-    fn rounded(&self, dc: HDC, rect: RECT, fill: COLORREF, border: COLORREF, radius: i32) {
+    fn outlined(&self, dc: HDC, rect: RECT, fill: COLORREF, border: COLORREF) {
         unsafe {
             let old_brush = SelectObject(dc, GetStockObject(DC_BRUSH));
             let old_pen = SelectObject(dc, GetStockObject(DC_PEN));
             SetDCBrushColor(dc, fill);
             SetDCPenColor(dc, border);
-            if radius == 0 {
-                Rectangle(dc, rect.left, rect.top, rect.right, rect.bottom);
-            } else {
-                RoundRect(
-                    dc,
-                    rect.left,
-                    rect.top,
-                    rect.right,
-                    rect.bottom,
-                    radius,
-                    radius,
-                );
-            }
+            Rectangle(dc, rect.left, rect.top, rect.right, rect.bottom);
             SelectObject(dc, old_brush);
             SelectObject(dc, old_pen);
         }
@@ -220,7 +208,7 @@ impl Theme {
                 } else {
                     self.field
                 };
-                self.rounded(
+                self.outlined(
                     dc,
                     RECT {
                         left,
@@ -230,7 +218,6 @@ impl Theme {
                     },
                     fill,
                     if hot { self.accent } else { self.border },
-                    0,
                 );
                 if checked {
                     let pen = CreatePen(
@@ -266,12 +253,11 @@ impl Theme {
                 } else {
                     self.button
                 };
-                self.rounded(
+                self.outlined(
                     dc,
                     rect,
                     fill,
                     if primary { self.accent } else { self.border },
-                    0,
                 );
                 if primary {
                     foreground = rgb(255, 255, 255);
@@ -299,7 +285,7 @@ impl Theme {
     fn combo(&self, hwnd: HWND, dc: HDC, rect: RECT, dpi: u32) {
         let enabled = unsafe { IsWindowEnabled(hwnd) } != 0;
         let color = if enabled { self.text } else { self.muted };
-        self.rounded(dc, rect, self.field, self.border, 0);
+        self.outlined(dc, rect, self.field, self.border);
         let mut label_rect = rect;
         label_rect.left += scaled(7, dpi);
         label_rect.right -= scaled(28, dpi);

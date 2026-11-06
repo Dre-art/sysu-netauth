@@ -59,8 +59,8 @@ const MENU_SHOW: u16 = 201;
 const MENU_QUIT: u16 = 202;
 const MENU_RELEASE: u16 = 205;
 const CLIENT_WIDTH: i32 = 720;
-const HEADER_HEIGHT: i32 = 72;
-const CLIENT_HEIGHT: i32 = 448 + HEADER_HEIGHT;
+const HEADER_HEIGHT: i32 = 56;
+const CLIENT_HEIGHT: i32 = 468;
 
 #[derive(Clone, Copy)]
 enum Font {
@@ -440,13 +440,13 @@ impl Window {
             MoveToEx(
                 dc,
                 scaled(14, self.dpi),
-                scaled(70, self.dpi),
+                scaled(54, self.dpi),
                 ptr::null_mut(),
             );
             LineTo(
                 dc,
                 scaled(CLIENT_WIDTH - 14, self.dpi),
-                scaled(70, self.dpi),
+                scaled(54, self.dpi),
             );
             SelectObject(dc, old_pen);
             EndPaint(self.hwnd, &paint);
@@ -460,7 +460,7 @@ impl Window {
             14,
             12,
             340,
-            248,
+            224,
             0,
         );
         self.control(
@@ -470,7 +470,7 @@ impl Window {
             366,
             12,
             340,
-            248,
+            224,
             0,
         );
         self.control(
@@ -478,9 +478,9 @@ impl Window {
             "03  常规设置",
             BS_GROUPBOX as u32,
             14,
-            272,
+            248,
             340,
-            136,
+            124,
             0,
         );
         self.control(
@@ -488,9 +488,9 @@ impl Window {
             "04  应用信息",
             BS_GROUPBOX as u32,
             366,
-            272,
+            248,
             340,
-            136,
+            124,
             0,
         );
         self.control("STATIC", "NetID", SS_CENTERIMAGE, 28, 42, 46, 26, 0);
@@ -504,13 +504,13 @@ impl Window {
             26,
             0,
         );
-        self.control("STATIC", "密码", SS_CENTERIMAGE, 28, 80, 46, 26, 0);
+        self.control("STATIC", "密码", SS_CENTERIMAGE, 28, 74, 46, 26, 0);
         self.password = self.control(
             "EDIT",
             "",
             WS_BORDER | WS_TABSTOP | ES_PASSWORD as u32 | ES_AUTOHSCROLL as u32,
             78,
-            80,
+            74,
             200,
             26,
             0,
@@ -520,12 +520,12 @@ impl Window {
             "显示",
             WS_TABSTOP | BS_AUTOCHECKBOX as u32,
             286,
-            80,
+            74,
             54,
             26,
             SHOW_PASSWORD,
         );
-        self.control("STATIC", "网卡", SS_CENTERIMAGE, 28, 118, 46, 26, 0);
+        self.control("STATIC", "网卡", SS_CENTERIMAGE, 28, 106, 46, 26, 0);
         self.iface = self.control(
             "COMBOBOX",
             "",
@@ -535,7 +535,7 @@ impl Window {
                 | CBS_HASSTRINGS as u32
                 | WS_VSCROLL,
             78,
-            118,
+            106,
             262,
             220,
             0,
@@ -545,7 +545,7 @@ impl Window {
             "手动选择网卡",
             WS_TABSTOP | BS_AUTOCHECKBOX as u32,
             28,
-            156,
+            138,
             158,
             24,
             MANUAL,
@@ -555,7 +555,7 @@ impl Window {
             "服务启动后自动认证",
             WS_TABSTOP | BS_AUTOCHECKBOX as u32,
             192,
-            156,
+            138,
             148,
             24,
             AUTO_AUTH,
@@ -570,7 +570,7 @@ impl Window {
                 label,
                 WS_TABSTOP | style as u32,
                 x,
-                208,
+                184,
                 100,
                 30,
                 id,
@@ -583,7 +583,7 @@ impl Window {
             "正在连接后台服务…",
             WS_TABSTOP | ES_MULTILINE as u32 | ES_AUTOVSCROLL as u32 | ES_READONLY as u32,
             14,
-            416,
+            380,
             692,
             20,
             0,
@@ -610,7 +610,7 @@ impl Window {
             "开机后启动界面程序",
             WS_TABSTOP | BS_AUTOCHECKBOX as u32,
             28,
-            296,
+            272,
             158,
             24,
             LOGIN,
@@ -620,7 +620,7 @@ impl Window {
             "开机后隐藏配置窗口",
             WS_TABSTOP | BS_AUTOCHECKBOX as u32,
             192,
-            296,
+            272,
             148,
             24,
             HIDE,
@@ -630,7 +630,7 @@ impl Window {
             "认证状态变化后通知",
             WS_TABSTOP | BS_AUTOCHECKBOX as u32,
             28,
-            326,
+            302,
             158,
             24,
             NOTIFY,
@@ -640,7 +640,7 @@ impl Window {
             "自动检查更新",
             WS_TABSTOP | BS_AUTOCHECKBOX as u32,
             192,
-            326,
+            302,
             148,
             24,
             AUTO_UPDATE,
@@ -650,7 +650,7 @@ impl Window {
             "有新版本时通知",
             WS_TABSTOP | BS_AUTOCHECKBOX as u32,
             28,
-            356,
+            332,
             158,
             24,
             UPDATE_NOTIFY,
@@ -660,28 +660,28 @@ impl Window {
             &format!("当前版本 v{}", env!("NETAUTH_APP_VERSION")),
             SS_CENTERIMAGE | SS_ENDELLIPSIS,
             380,
-            294,
+            270,
             312,
             26,
             0,
         );
         for (id, label, x, y) in [
-            (UPDATE, "检查更新", 380, 354),
-            (LOGS, "运行日志", 486, 354),
-            (RELEASE, "更新日志", 592, 354),
+            (UPDATE, "检查更新", 380, 330),
+            (LOGS, "运行日志", 486, 330),
+            (RELEASE, "更新日志", 592, 330),
         ] {
             self.control("BUTTON", label, WS_TABSTOP, x, y, 100, 26, id);
         }
         // Checkboxes share two tracks across the account and settings panels.
         self.grid(
-            [28, 156, 312, 24],
+            [28, 138, 312, 24],
             2,
             1,
             [8, 6],
             &[(self.manual, 0, 0), (self.auto_auth, 0, 1)],
         );
         self.grid(
-            [28, 296, 312, 84],
+            [28, 272, 312, 84],
             2,
             3,
             [8, 6],
@@ -704,8 +704,8 @@ impl Window {
             (handle(LOGS), 0, 1),
             (handle(RELEASE), 0, 2),
         ];
-        self.grid([28, 208, 312, 30], 3, 1, [8, 8], &account_actions);
-        self.grid([380, 354, 312, 30], 3, 1, [8, 8], &info_actions);
+        self.grid([28, 184, 312, 30], 3, 1, [8, 8], &account_actions);
+        self.grid([380, 330, 312, 30], 3, 1, [8, 8], &info_actions);
         // Keep the existing controls and tab order; the header occupies its own row.
         for control in &mut self.controls {
             control.bounds[1] += HEADER_HEIGHT;
@@ -713,14 +713,14 @@ impl Window {
                 grid.bounds[1] += HEADER_HEIGHT;
             }
         }
-        self.control("STATIC", "SYSU NetAuth", SS_CENTERIMAGE, 18, 10, 300, 34, 0);
+        self.control("STATIC", "SYSU NetAuth", SS_CENTERIMAGE, 18, 0, 300, 32, 0);
         self.controls.last_mut().unwrap().font = Font::Brand;
         self.brand_caption = self.control(
             "STATIC",
             "CAMPUS NETWORK  /  WINDOWS CLIENT",
             SS_CENTERIMAGE,
             20,
-            46,
+            33,
             360,
             18,
             0,
@@ -730,7 +730,7 @@ impl Window {
             "●  802.1X  /  WIRED",
             SS_CENTERIMAGE,
             548,
-            25,
+            15,
             160,
             22,
             0,
