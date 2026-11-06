@@ -27,6 +27,7 @@ pub(super) struct Theme {
     button: COLORREF,
     hover: COLORREF,
     accent: COLORREF,
+    pub accent_text: COLORREF,
     pub background_brush: HBRUSH,
     pub field_brush: HBRUSH,
 }
@@ -74,23 +75,23 @@ impl Theme {
             }
         } else if dark {
             (
-                rgb(24, 24, 27),
-                rgb(39, 39, 42),
-                rgb(228, 228, 231),
-                rgb(161, 161, 170),
-                rgb(82, 82, 91),
-                rgb(47, 47, 51),
-                rgb(63, 63, 70),
+                rgb(27, 26, 25),
+                rgb(39, 37, 35),
+                rgb(239, 235, 230),
+                rgb(181, 175, 169),
+                rgb(86, 81, 77),
+                rgb(48, 45, 43),
+                rgb(69, 57, 54),
             )
         } else {
             (
+                rgb(250, 250, 246),
                 rgb(255, 255, 255),
-                rgb(255, 255, 255),
-                rgb(24, 24, 27),
-                rgb(113, 113, 122),
-                rgb(190, 190, 198),
-                rgb(246, 246, 248),
-                rgb(233, 239, 250),
+                rgb(25, 25, 24),
+                rgb(109, 108, 105),
+                rgb(203, 202, 196),
+                rgb(255, 255, 253),
+                rgb(247, 239, 236),
             )
         };
         Self {
@@ -103,7 +104,12 @@ impl Theme {
             border,
             button,
             hover,
-            accent: rgb(37, 99, 235),
+            accent: rgb(190, 36, 36),
+            accent_text: if dark {
+                rgb(255, 140, 132)
+            } else {
+                rgb(190, 36, 36)
+            },
             background_brush: unsafe { CreateSolidBrush(background) },
             field_brush: unsafe { CreateSolidBrush(field) },
         }
@@ -147,15 +153,19 @@ impl Theme {
             let old_pen = SelectObject(dc, GetStockObject(DC_PEN));
             SetDCBrushColor(dc, fill);
             SetDCPenColor(dc, border);
-            RoundRect(
-                dc,
-                rect.left,
-                rect.top,
-                rect.right,
-                rect.bottom,
-                radius,
-                radius,
-            );
+            if radius == 0 {
+                Rectangle(dc, rect.left, rect.top, rect.right, rect.bottom);
+            } else {
+                RoundRect(
+                    dc,
+                    rect.left,
+                    rect.top,
+                    rect.right,
+                    rect.bottom,
+                    radius,
+                    radius,
+                );
+            }
             SelectObject(dc, old_brush);
             SelectObject(dc, old_pen);
         }
@@ -181,15 +191,7 @@ impl Theme {
                 let old_brush = SelectObject(dc, GetStockObject(HOLLOW_BRUSH));
                 let old_pen = SelectObject(dc, GetStockObject(DC_PEN));
                 SetDCPenColor(dc, self.border);
-                RoundRect(
-                    dc,
-                    frame.left,
-                    frame.top,
-                    frame.right,
-                    frame.bottom,
-                    scaled(6, dpi),
-                    scaled(6, dpi),
-                );
+                Rectangle(dc, frame.left, frame.top, frame.right, frame.bottom);
                 SelectObject(dc, old_brush);
                 SelectObject(dc, old_pen);
                 label_rect.left += scaled(8, dpi);
@@ -204,6 +206,7 @@ impl Theme {
                 label_rect.right += scaled(6, dpi);
                 FillRect(dc, &label_rect, self.background_brush);
                 label_rect.left += scaled(3, dpi);
+                foreground = self.accent_text;
                 flags = DT_SINGLELINE;
             } else if style == BS_AUTOCHECKBOX as u32 {
                 let size = scaled(15, dpi);
@@ -227,7 +230,7 @@ impl Theme {
                     },
                     fill,
                     if hot { self.accent } else { self.border },
-                    scaled(4, dpi),
+                    0,
                 );
                 if checked {
                     let pen = CreatePen(
@@ -268,7 +271,7 @@ impl Theme {
                     rect,
                     fill,
                     if primary { self.accent } else { self.border },
-                    scaled(6, dpi),
+                    0,
                 );
                 if primary {
                     foreground = rgb(255, 255, 255);
@@ -296,7 +299,7 @@ impl Theme {
     fn combo(&self, hwnd: HWND, dc: HDC, rect: RECT, dpi: u32) {
         let enabled = unsafe { IsWindowEnabled(hwnd) } != 0;
         let color = if enabled { self.text } else { self.muted };
-        self.rounded(dc, rect, self.field, self.border, scaled(4, dpi));
+        self.rounded(dc, rect, self.field, self.border, 0);
         let mut label_rect = rect;
         label_rect.left += scaled(7, dpi);
         label_rect.right -= scaled(28, dpi);
@@ -517,6 +520,19 @@ mod tests {
                     "{state:?} dark={dark}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn brand_text_and_primary_button_are_readable() {
+        let contrast = |a, b| {
+            let (a, b) = (luminance(a), luminance(b));
+            (a.max(b) + 0.05) / (a.min(b) + 0.05)
+        };
+        for dark in [false, true] {
+            let theme = Theme::appearance(dark, false);
+            assert!(contrast(theme.accent_text, theme.background) >= 4.5);
+            assert!(contrast(rgb(255, 255, 255), theme.accent) >= 4.5);
         }
     }
 }

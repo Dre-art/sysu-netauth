@@ -59,12 +59,14 @@ const MENU_SHOW: u16 = 201;
 const MENU_QUIT: u16 = 202;
 const MENU_RELEASE: u16 = 205;
 const CLIENT_WIDTH: i32 = 720;
-const CLIENT_HEIGHT: i32 = 448;
+const HEADER_HEIGHT: i32 = 72;
+const CLIENT_HEIGHT: i32 = 448 + HEADER_HEIGHT;
 
 #[derive(Clone, Copy)]
 enum Font {
     Body,
     Heading,
+    Brand,
 }
 struct Control {
     hwnd: HWND,
@@ -109,7 +111,10 @@ struct Window {
     dpi: u32,
     font: HFONT,
     heading_font: HFONT,
+    brand_font: HFONT,
     theme: Theme,
+    brand_mark: HWND,
+    brand_caption: HWND,
     status_brush: HBRUSH,
     status_color: COLORREF,
     status_background: COLORREF,
@@ -212,7 +217,10 @@ impl Window {
             dpi: unsafe { GetDpiForWindow(hwnd) }.max(96),
             font: ptr::null_mut(),
             heading_font: ptr::null_mut(),
+            brand_font: ptr::null_mut(),
             theme: Theme::system(),
+            brand_mark: ptr::null_mut(),
+            brand_caption: ptr::null_mut(),
             status_brush: ptr::null_mut(),
             status_color: 0,
             status_background: 0,
@@ -298,7 +306,7 @@ impl Window {
     }
     fn layout(&mut self, dpi: u32) {
         self.dpi = dpi.max(96);
-        let old_fonts = [self.font, self.heading_font];
+        let old_fonts = [self.font, self.heading_font, self.brand_font];
         let mut metrics: NONCLIENTMETRICSW = unsafe { mem::zeroed() };
         metrics.cbSize = mem::size_of::<NONCLIENTMETRICSW>() as u32;
         unsafe {
@@ -321,6 +329,9 @@ impl Window {
             metrics.lfMessageFont.lfHeight = -scaled(18, self.dpi);
             metrics.lfMessageFont.lfWeight = FW_SEMIBOLD as i32;
             self.heading_font = CreateFontIndirectW(&metrics.lfMessageFont);
+            metrics.lfMessageFont.lfHeight = -scaled(26, self.dpi);
+            metrics.lfMessageFont.lfWeight = FW_BOLD as i32;
+            self.brand_font = CreateFontIndirectW(&metrics.lfMessageFont);
             for control in &self.controls {
                 let [x, y, w, h] = control
                     .grid
@@ -337,6 +348,7 @@ impl Window {
                 let font = match control.font {
                     Font::Body => self.font,
                     Font::Heading => self.heading_font,
+                    Font::Brand => self.brand_font,
                 };
                 SendMessageW(control.hwnd, WM_SETFONT, font as usize, 1);
             }
@@ -423,13 +435,27 @@ impl Window {
             let mut paint: PAINTSTRUCT = mem::zeroed();
             let dc = BeginPaint(self.hwnd, &mut paint);
             FillRect(dc, &paint.rcPaint, self.theme.background_brush);
+            let old_pen = SelectObject(dc, GetStockObject(DC_PEN));
+            SetDCPenColor(dc, self.theme.text);
+            MoveToEx(
+                dc,
+                scaled(14, self.dpi),
+                scaled(70, self.dpi),
+                ptr::null_mut(),
+            );
+            LineTo(
+                dc,
+                scaled(CLIENT_WIDTH - 14, self.dpi),
+                scaled(70, self.dpi),
+            );
+            SelectObject(dc, old_pen);
             EndPaint(self.hwnd, &paint);
         }
     }
     fn build(&mut self) {
         self.control(
             "BUTTON",
-            "账户与认证",
+            "01  账户与认证",
             BS_GROUPBOX as u32,
             14,
             12,
@@ -439,7 +465,7 @@ impl Window {
         );
         self.control(
             "BUTTON",
-            "网络状态",
+            "02  网络状态",
             BS_GROUPBOX as u32,
             366,
             12,
@@ -449,7 +475,7 @@ impl Window {
         );
         self.control(
             "BUTTON",
-            "常规设置",
+            "03  常规设置",
             BS_GROUPBOX as u32,
             14,
             272,
@@ -459,7 +485,7 @@ impl Window {
         );
         self.control(
             "BUTTON",
-            "应用信息",
+            "04  应用信息",
             BS_GROUPBOX as u32,
             366,
             272,
@@ -680,6 +706,35 @@ impl Window {
         ];
         self.grid([28, 208, 312, 30], 3, 1, [8, 8], &account_actions);
         self.grid([380, 354, 312, 30], 3, 1, [8, 8], &info_actions);
+        // Keep the existing controls and tab order; the header occupies its own row.
+        for control in &mut self.controls {
+            control.bounds[1] += HEADER_HEIGHT;
+            if let Some((grid, _, _)) = &mut control.grid {
+                grid.bounds[1] += HEADER_HEIGHT;
+            }
+        }
+        self.control("STATIC", "SYSU NetAuth", SS_CENTERIMAGE, 18, 10, 300, 34, 0);
+        self.controls.last_mut().unwrap().font = Font::Brand;
+        self.brand_caption = self.control(
+            "STATIC",
+            "CAMPUS NETWORK  /  WINDOWS CLIENT",
+            SS_CENTERIMAGE,
+            20,
+            46,
+            360,
+            18,
+            0,
+        );
+        self.brand_mark = self.control(
+            "STATIC",
+            "●  802.1X  /  WIRED",
+            SS_CENTERIMAGE,
+            548,
+            25,
+            160,
+            22,
+            0,
+        );
         self.update_options();
         self.update_actions(false, false);
         self.layout(self.dpi);
@@ -1364,7 +1419,12 @@ impl Window {
 impl Drop for Window {
     fn drop(&mut self) {
         unsafe {
-            for object in [self.font, self.heading_font, self.status_brush] {
+            for object in [
+                self.font,
+                self.heading_font,
+                self.brand_font,
+                self.status_brush,
+            ] {
                 if !object.is_null() {
                     DeleteObject(object);
                 }
@@ -1424,6 +1484,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, message: u32, wparam: usize, lpara
                         dc,
                         if is_status {
                             window.status_color
+                        } else if control == window.brand_mark && !window.theme.high_contrast {
+                            window.theme.accent_text
+                        } else if control == window.brand_caption && !window.theme.high_contrast {
+                            window.theme.muted
                         } else if IsWindowEnabled(control) == 0 {
                             window.theme.muted
                         } else {
