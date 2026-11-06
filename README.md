@@ -1,49 +1,42 @@
-# SYSU NetAuth
+# SYSU NetAuth · Windows
 
-中山大学有线校园网自动认证客户端，支持 802.1X / EAP-MD5。Windows 和 macOS 提供图形界面，Linux 提供命令行；后台服务负责持续认证和断线重连。
+一款面向 Windows 的中山大学有线校园网认证客户端。支持 802.1X / EAP-MD5 认证，通过后台服务处理自动认证和断线重连，并提供简洁的浅色与深色界面。
 
-当前正式版为 **v0.7.0**，从 [GitHub](https://github.com/LoveElysia1314/sysu-netauth/releases/tag/v0.7.0) 或 [Gitee](https://gitee.com/LoveElysia1314/sysu-netauth/releases/tag/v0.7.0) 下载。
+本项目是 [LoveElysia1314/sysu-netauth](https://github.com/LoveElysia1314/sysu-netauth) 的非官方 fork。本分支专注 Windows 界面与使用体验，保留上游的认证与后台服务逻辑。
 
-## 下载与安装
-
-| 平台 | 下载文件标识 | 使用方式 |
-| --- | --- | --- |
-| Windows 10/11 x64 | `windows_x64` | 原生界面、命令行、后台服务 |
-| Windows 10/11 ARM64 | `windows_arm64` | 原生界面、命令行、后台服务 |
-| Linux x64 | `linux_x64` | 命令行、systemd 服务 |
-| macOS 11+ Apple Silicon / Intel | `macos_arm64` / `macos_x64` | PKG 安装包，含原生界面、菜单栏和后台服务 |
-
-Windows 下载对应架构的 `Setup.exe`，macOS 下载 `.pkg` 安装包。安装后填写 NetID 和密码，点击“认证”。后台服务独立运行，退出界面后仍可自动认证。
-
-macOS 首次打开时若提示“Apple 无法验证是否包含恶意软件”，请按[首次打开说明](docs/MACOS.md#首次打开时的安全提示)为该安装包单独授权。
-
-Linux 压缩包包含需要 root 权限执行的系统服务安装脚本。
-
-- [Windows 安装与排障](docs/WINDOWS.md)
-- [Linux 安装与服务管理](docs/LINUX.md)
-- [macOS 安装与服务管理](docs/MACOS.md)
+> 当前为 Windows x64 测试版：已完成 Windows 构建、自动化测试和界面预览，尚未在真实校园网环境中验证认证连接。
 
 ## 功能
 
-- 自动选择有线网卡，支持按设备固定选择和失败后切换候选网卡。
-- 持续响应交换机的重新认证请求，自动处理断线和 Windows 睡眠、休眠恢复。
-- 网卡插拔时更新选择列表，保留尚未保存的选择。
-- Windows 界面跟随系统浅色或深色主题，提供托盘状态、登录启动和通知选项。
-- 后台检查正式版更新；Windows 和 macOS 可手动检查、查看发布说明或忽略版本，Linux 在命令行状态中提示更新。
-- Windows 和 macOS 13+ 提供独立通知助手，退出状态程序后仍可接收联网状态及正式版更新提醒。
+- 首页集中显示账号、认证操作和网络状态；网卡、通知及更新选项收纳在设置页。
+- 跟随系统切换浅色或深色主题，支持托盘状态与开机启动界面。
+- 自动或手动选择有线网卡，后台响应重新认证并在断线后重试。
+- 支持认证状态通知、日志查看和检查上游版本更新。
 
-程序负责有线认证，IP 地址和 DHCP 由系统网络管理器处理。使用前请退出其他 802.1X 客户端。
+程序负责有线认证；IP 地址与 DHCP 由系统管理。使用前请退出其他可能占用网卡的 802.1X 客户端。
 
-## 文档与开发
+## 下载与安装
 
-[命令行与配置](docs/CLI.md) · [源码构建](docs/BUILDING.md) · [macOS 界面开发](macos/README.md) · [架构](docs/ARCHITECTURE.md) · [测试](docs/VALIDATION.md) · [性能测量](docs/PERFORMANCE.md) · [发行维护](docs/RELEASING.md)
+本分支目前提供 Windows 10/11 **x64 测试构建**。打开[已通过的 Windows 构建记录](https://github.com/Dre-art/sysu-netauth/actions/runs/42184253632)，下载 `windows-ui-preview-and-build`，解压后运行其中的 `SYSUNetAuth_windows_x64_Setup_v0.7.0.exe`。GitHub Actions 构建产物有保存期限，下载通常需要登录 GitHub。
 
-从仓库根目录构建：
+1. 运行安装包，按提示完成安装；安装和服务管理需要管理员权限。
+2. 打开程序，填写 NetID 和密码，点击“认证”。默认自动选择已连接的有线网卡。
+3. 如需固定网卡或调整启动和通知选项，打开右上角的“设置与更多”。更改网卡后，返回首页点击“认证”应用。
 
-```sh
-cargo build --locked --release
+测试安装包尚未签名，Windows 可能显示安全提示。它沿用上游的安装标识和配置位置，安装时可能覆盖已有的 SYSU NetAuth 版本。
+
+## 账号与更新
+
+账户配置位于 `%ProgramData%\SYSUNetAuth\config.json`，其中包含明文凭据；系统和管理员账户可以访问。请勿分享该文件，也不要将密码提交到仓库。
+
+本分支保留了上游的更新检查来源；更新提示和发布说明指向上游项目，不代表本 fork 已发布新版。上游发布页中的安装包也不包含本分支的界面改动。
+
+## 从源码构建
+
+需要 Windows x64、Rust MSVC 工具链、Visual Studio C++ 工具及 Windows SDK；制作安装包还需要 Inno Setup 6。
+
+```powershell
+.\scripts\build.ps1 -Target x86_64-pc-windows-msvc
 ```
 
-Windows 构建需要 Visual Studio C++ 工具和 Windows SDK；制作安装包还需要 Inno Setup 6。各平台的依赖、输出目录和交叉编译方法见[构建文档](docs/BUILDING.md)。
-
-版本说明见[更新日志](CHANGELOG.md)，安装包见 [GitHub Releases](https://github.com/LoveElysia1314/sysu-netauth/releases)。
+构建产物位于 `dist` 目录。上游的[安装与排障文档](docs/WINDOWS.md)和[构建文档](docs/BUILDING.md)仍可供参考，界面位置以本分支为准。
