@@ -21,15 +21,17 @@ pub(super) struct Theme {
     pub high_contrast: bool,
     pub background: COLORREF,
     pub field: COLORREF,
+    pub panel: COLORREF,
     pub text: COLORREF,
     pub muted: COLORREF,
-    border: COLORREF,
+    pub border: COLORREF,
     button: COLORREF,
     hover: COLORREF,
     accent: COLORREF,
     pub accent_text: COLORREF,
     pub background_brush: HBRUSH,
     pub field_brush: HBRUSH,
+    pub panel_brush: HBRUSH,
 }
 
 impl Theme {
@@ -61,9 +63,10 @@ impl Theme {
     }
 
     pub(super) fn appearance(dark: bool, high_contrast: bool) -> Self {
-        let (background, field, text, muted, border, button, hover) = if high_contrast {
+        let (background, field, panel, text, muted, border, button, hover) = if high_contrast {
             unsafe {
                 (
+                    GetSysColor(COLOR_WINDOW),
                     GetSysColor(COLOR_WINDOW),
                     GetSysColor(COLOR_WINDOW),
                     GetSysColor(COLOR_WINDOWTEXT),
@@ -77,6 +80,7 @@ impl Theme {
             (
                 rgb(27, 26, 25),
                 rgb(39, 37, 35),
+                rgb(37, 35, 33),
                 rgb(239, 235, 230),
                 rgb(181, 175, 169),
                 rgb(86, 81, 77),
@@ -87,6 +91,7 @@ impl Theme {
             (
                 rgb(250, 250, 246),
                 rgb(255, 255, 255),
+                rgb(245, 244, 238),
                 rgb(25, 25, 24),
                 rgb(109, 108, 105),
                 rgb(203, 202, 196),
@@ -99,6 +104,7 @@ impl Theme {
             high_contrast,
             background,
             field,
+            panel,
             text,
             muted,
             border,
@@ -112,6 +118,7 @@ impl Theme {
             },
             background_brush: unsafe { CreateSolidBrush(background) },
             field_brush: unsafe { CreateSolidBrush(field) },
+            panel_brush: unsafe { CreateSolidBrush(panel) },
         }
     }
 
@@ -147,13 +154,21 @@ impl Theme {
         status_colors(self.dark, state)
     }
 
-    fn outlined(&self, dc: HDC, rect: RECT, fill: COLORREF, border: COLORREF) {
+    pub(super) fn rounded(&self, dc: HDC, rect: RECT, fill: COLORREF, border: COLORREF, dpi: u32) {
         unsafe {
             let old_brush = SelectObject(dc, GetStockObject(DC_BRUSH));
             let old_pen = SelectObject(dc, GetStockObject(DC_PEN));
             SetDCBrushColor(dc, fill);
             SetDCPenColor(dc, border);
-            Rectangle(dc, rect.left, rect.top, rect.right, rect.bottom);
+            RoundRect(
+                dc,
+                rect.left,
+                rect.top,
+                rect.right,
+                rect.bottom,
+                scaled(12, dpi),
+                scaled(12, dpi),
+            );
             SelectObject(dc, old_brush);
             SelectObject(dc, old_pen);
         }
@@ -202,13 +217,13 @@ impl Theme {
                 let top = (rect.bottom - size) / 2;
                 let checked = SendMessageW(hwnd, BM_GETCHECK, 0, 0) == BST_CHECKED as isize;
                 let fill = if checked && enabled {
-                    self.accent
+                    self.text
                 } else if hot {
                     self.hover
                 } else {
                     self.field
                 };
-                self.outlined(
+                self.rounded(
                     dc,
                     RECT {
                         left,
@@ -217,17 +232,14 @@ impl Theme {
                         bottom: top + size,
                     },
                     fill,
-                    if hot { self.accent } else { self.border },
+                    if hot { self.text } else { self.border },
+                    dpi,
                 );
                 if checked {
                     let pen = CreatePen(
                         PS_SOLID,
                         scaled(2, dpi),
-                        if enabled {
-                            rgb(255, 255, 255)
-                        } else {
-                            self.muted
-                        },
+                        if enabled { self.background } else { self.muted },
                     );
                     let old = SelectObject(dc, pen);
                     MoveToEx(
@@ -245,7 +257,15 @@ impl Theme {
             } else {
                 let primary = GetDlgCtrlID(hwnd) == CONNECT as i32 && enabled;
                 let fill = if primary {
-                    self.accent
+                    if hot || pressed {
+                        if self.dark {
+                            rgb(255, 255, 255)
+                        } else {
+                            rgb(62, 60, 59)
+                        }
+                    } else {
+                        self.text
+                    }
                 } else if pressed {
                     self.field
                 } else if hot {
@@ -253,14 +273,15 @@ impl Theme {
                 } else {
                     self.button
                 };
-                self.outlined(
+                self.rounded(
                     dc,
                     rect,
                     fill,
-                    if primary { self.accent } else { self.border },
+                    if primary { fill } else { self.border },
+                    dpi,
                 );
                 if primary {
-                    foreground = rgb(255, 255, 255);
+                    foreground = self.background;
                 }
                 flags |= DT_CENTER;
                 if pressed {
@@ -285,7 +306,7 @@ impl Theme {
     fn combo(&self, hwnd: HWND, dc: HDC, rect: RECT, dpi: u32) {
         let enabled = unsafe { IsWindowEnabled(hwnd) } != 0;
         let color = if enabled { self.text } else { self.muted };
-        self.outlined(dc, rect, self.field, self.border);
+        self.rounded(dc, rect, self.field, self.border, dpi);
         let mut label_rect = rect;
         label_rect.left += scaled(7, dpi);
         label_rect.right -= scaled(28, dpi);
@@ -396,6 +417,7 @@ impl Drop for Theme {
         unsafe {
             DeleteObject(self.background_brush);
             DeleteObject(self.field_brush);
+            DeleteObject(self.panel_brush);
         }
     }
 }
@@ -498,7 +520,8 @@ mod tests {
                 State::Failed,
                 State::Stopped,
             ] {
-                let (foreground, background) = status_colors(dark, &state);
+                let (foreground, _) = status_colors(dark, &state);
+                let background = Theme::appearance(dark, false).panel;
                 let a = luminance(foreground);
                 let b = luminance(background);
                 assert!(
@@ -518,7 +541,7 @@ mod tests {
         for dark in [false, true] {
             let theme = Theme::appearance(dark, false);
             assert!(contrast(theme.accent_text, theme.background) >= 4.5);
-            assert!(contrast(rgb(255, 255, 255), theme.accent) >= 4.5);
+            assert!(contrast(theme.background, theme.text) >= 4.5);
         }
     }
 }

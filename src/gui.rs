@@ -22,7 +22,7 @@ use windows_sys::Win32::{
     UI::{
         Controls::*,
         HiDpi::*,
-        Input::KeyboardAndMouse::{EnableWindow, IsWindowEnabled},
+        Input::KeyboardAndMouse::{EnableWindow, GetFocus, IsWindowEnabled, SetFocus},
         Shell::*,
         WindowsAndMessaging::*,
     },
@@ -42,6 +42,8 @@ const NOTIFY: u16 = 116;
 const AUTO_UPDATE: u16 = 117;
 const UPDATE_NOTIFY: u16 = 118;
 const PREFERENCES: u16 = 119;
+const SETTINGS: u16 = 120;
+const BACK: u16 = 121;
 const CONNECT: u16 = 102;
 const DISCONNECT: u16 = 103;
 const UPDATE: u16 = 104;
@@ -59,8 +61,7 @@ const MENU_SHOW: u16 = 201;
 const MENU_QUIT: u16 = 202;
 const MENU_RELEASE: u16 = 205;
 const CLIENT_WIDTH: i32 = 720;
-const HEADER_HEIGHT: i32 = 56;
-const CLIENT_HEIGHT: i32 = 468;
+const CLIENT_HEIGHT: i32 = 456;
 
 #[derive(Clone, Copy)]
 enum Font {
@@ -72,7 +73,6 @@ struct Control {
     hwnd: HWND,
     bounds: [i32; 4],
     font: Font,
-    grid: Option<(crate::layout::Grid, usize, usize)>,
 }
 
 // Geometry is kept in logical pixels so moving between monitors never compounds rounding.
@@ -108,12 +108,16 @@ struct Window {
     network: [HWND; 6],
     update: HWND,
     controls: Vec<Control>,
+    main_controls: Vec<HWND>,
+    settings_controls: Vec<HWND>,
+    panel_controls: Vec<HWND>,
+    muted_controls: Vec<HWND>,
+    settings_open: bool,
     dpi: u32,
     font: HFONT,
     heading_font: HFONT,
     brand_font: HFONT,
     theme: Theme,
-    brand_mark: HWND,
     brand_caption: HWND,
     status_brush: HBRUSH,
     status_color: COLORREF,
@@ -214,12 +218,16 @@ impl Window {
             network: [ptr::null_mut(); 6],
             update: ptr::null_mut(),
             controls: Vec::new(),
+            main_controls: Vec::new(),
+            settings_controls: Vec::new(),
+            panel_controls: Vec::new(),
+            muted_controls: Vec::new(),
+            settings_open: false,
             dpi: unsafe { GetDpiForWindow(hwnd) }.max(96),
             font: ptr::null_mut(),
             heading_font: ptr::null_mut(),
             brand_font: ptr::null_mut(),
             theme: Theme::system(),
-            brand_mark: ptr::null_mut(),
             brand_caption: ptr::null_mut(),
             status_brush: ptr::null_mut(),
             status_color: 0,
@@ -278,31 +286,8 @@ impl Window {
             hwnd: handle,
             bounds: [x, y, w, h],
             font: Font::Body,
-            grid: None,
         });
         handle
-    }
-    fn grid(
-        &mut self,
-        bounds: [i32; 4],
-        columns: usize,
-        rows: usize,
-        gap: [i32; 2],
-        cells: &[(HWND, usize, usize)],
-    ) {
-        let grid = crate::layout::Grid {
-            bounds,
-            columns,
-            rows,
-            gap,
-        };
-        for &(hwnd, row, column) in cells {
-            self.controls
-                .iter_mut()
-                .find(|control| control.hwnd == hwnd)
-                .unwrap()
-                .grid = Some((grid, row, column));
-        }
     }
     fn layout(&mut self, dpi: u32) {
         self.dpi = dpi.max(96);
@@ -324,19 +309,18 @@ impl Window {
                     (&mut metrics.lfMessageFont as *mut LOGFONTW).cast(),
                 );
             }
-            metrics.lfMessageFont.lfHeight = -scaled(13, self.dpi);
+            copy_wide(&mut metrics.lfMessageFont.lfFaceName, "Microsoft YaHei UI");
+            metrics.lfMessageFont.lfHeight = -scaled(14, self.dpi);
             self.font = CreateFontIndirectW(&metrics.lfMessageFont);
-            metrics.lfMessageFont.lfHeight = -scaled(18, self.dpi);
+            metrics.lfMessageFont.lfHeight = -scaled(16, self.dpi);
             metrics.lfMessageFont.lfWeight = FW_SEMIBOLD as i32;
             self.heading_font = CreateFontIndirectW(&metrics.lfMessageFont);
-            metrics.lfMessageFont.lfHeight = -scaled(26, self.dpi);
+            copy_wide(&mut metrics.lfMessageFont.lfFaceName, "Segoe UI");
+            metrics.lfMessageFont.lfHeight = -scaled(32, self.dpi);
             metrics.lfMessageFont.lfWeight = FW_BOLD as i32;
             self.brand_font = CreateFontIndirectW(&metrics.lfMessageFont);
             for control in &self.controls {
-                let [x, y, w, h] = control
-                    .grid
-                    .map(|(grid, row, column)| grid.cell(row, column))
-                    .unwrap_or(control.bounds);
+                let [x, y, w, h] = control.bounds;
                 MoveWindow(
                     control.hwnd,
                     scaled(x, self.dpi),
@@ -416,7 +400,7 @@ impl Window {
     }
     fn status_style(&mut self, state: &State, title: &str) {
         let (foreground, _) = self.theme.status(state);
-        let background = self.theme.background;
+        let background = self.theme.panel;
         unsafe {
             if background != self.status_background || self.status_brush.is_null() {
                 if !self.status_brush.is_null() {
@@ -436,96 +420,194 @@ impl Window {
             let dc = BeginPaint(self.hwnd, &mut paint);
             FillRect(dc, &paint.rcPaint, self.theme.background_brush);
             let old_pen = SelectObject(dc, GetStockObject(DC_PEN));
-            SetDCPenColor(dc, self.theme.text);
+            SetDCPenColor(dc, self.theme.border);
             MoveToEx(
                 dc,
-                scaled(14, self.dpi),
-                scaled(54, self.dpi),
+                scaled(40, self.dpi),
+                scaled(106, self.dpi),
                 ptr::null_mut(),
             );
-            LineTo(
-                dc,
-                scaled(CLIENT_WIDTH - 14, self.dpi),
-                scaled(54, self.dpi),
-            );
+            LineTo(dc, scaled(680, self.dpi), scaled(106, self.dpi));
             SelectObject(dc, old_pen);
+            if !self.settings_open {
+                self.theme.rounded(
+                    dc,
+                    self.rect(390, 132, 290, 267),
+                    self.theme.panel,
+                    self.theme.border,
+                    self.dpi,
+                );
+                for (top, input) in [(193, self.username), (271, self.password)] {
+                    self.theme.rounded(
+                        dc,
+                        self.rect(40, top, 315, 40),
+                        self.theme.field,
+                        if GetFocus() == input {
+                            self.theme.accent_text
+                        } else {
+                            self.theme.border
+                        },
+                        self.dpi,
+                    );
+                }
+            }
             EndPaint(self.hwnd, &paint);
         }
     }
+    fn rect(&self, x: i32, y: i32, width: i32, height: i32) -> RECT {
+        RECT {
+            left: scaled(x, self.dpi),
+            top: scaled(y, self.dpi),
+            right: scaled(x + width, self.dpi),
+            bottom: scaled(y + height, self.dpi),
+        }
+    }
+    fn show_settings(&mut self, show: bool) {
+        self.settings_open = show;
+        unsafe {
+            for &control in &self.main_controls {
+                ShowWindow(control, if show { SW_HIDE } else { SW_SHOW });
+            }
+            for &control in &self.settings_controls {
+                ShowWindow(control, if show { SW_SHOW } else { SW_HIDE });
+            }
+            InvalidateRect(self.hwnd, ptr::null(), 1);
+            if IsWindowVisible(self.hwnd) != 0 {
+                SetFocus(if show {
+                    GetDlgItem(self.hwnd, BACK as i32)
+                } else {
+                    self.username
+                });
+            }
+        }
+    }
     fn build(&mut self) {
-        self.control(
-            "BUTTON",
-            "01  账户与认证",
-            BS_GROUPBOX as u32,
-            14,
-            12,
-            340,
-            224,
-            0,
-        );
-        self.control(
-            "BUTTON",
-            "02  网络状态",
-            BS_GROUPBOX as u32,
-            366,
-            12,
-            340,
-            224,
-            0,
-        );
-        self.control(
-            "BUTTON",
-            "03  常规设置",
-            BS_GROUPBOX as u32,
-            14,
-            248,
-            340,
-            124,
-            0,
-        );
-        self.control(
-            "BUTTON",
-            "04  应用信息",
-            BS_GROUPBOX as u32,
-            366,
-            248,
-            340,
-            124,
-            0,
-        );
-        self.control("STATIC", "NetID", SS_CENTERIMAGE, 28, 42, 46, 26, 0);
+        self.control("STATIC", "NetAuth.", SS_CENTERIMAGE, 40, 22, 240, 42, 0);
+        self.controls.last_mut().unwrap().font = Font::Brand;
+        self.brand_caption =
+            self.control("STATIC", "校园网连接", SS_CENTERIMAGE, 42, 68, 220, 20, 0);
+
+        let main_start = self.controls.len();
+        self.control("STATIC", "账户信息", SS_CENTERIMAGE, 40, 128, 180, 24, 0);
+        self.controls.last_mut().unwrap().font = Font::Heading;
+        self.control("STATIC", "NetID", SS_CENTERIMAGE, 40, 166, 120, 20, 0);
         self.username = self.control(
             "EDIT",
             "",
-            WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL as u32,
-            78,
-            42,
-            262,
-            26,
+            WS_TABSTOP | ES_AUTOHSCROLL as u32,
+            52,
+            202,
+            291,
+            21,
             0,
         );
-        self.control("STATIC", "密码", SS_CENTERIMAGE, 28, 74, 46, 26, 0);
+        self.control("STATIC", "密码", SS_CENTERIMAGE, 40, 244, 120, 20, 0);
         self.password = self.control(
             "EDIT",
             "",
-            WS_BORDER | WS_TABSTOP | ES_PASSWORD as u32 | ES_AUTOHSCROLL as u32,
-            78,
-            74,
-            200,
-            26,
+            WS_TABSTOP | ES_PASSWORD as u32 | ES_AUTOHSCROLL as u32,
+            52,
+            280,
+            291,
+            21,
             0,
         );
         self.control(
             "BUTTON",
-            "显示",
+            "显示密码",
             WS_TABSTOP | BS_AUTOCHECKBOX as u32,
-            286,
-            74,
-            54,
-            26,
+            40,
+            318,
+            120,
+            24,
             SHOW_PASSWORD,
         );
-        self.control("STATIC", "网卡", SS_CENTERIMAGE, 28, 106, 46, 26, 0);
+        self.control(
+            "BUTTON",
+            "认证",
+            WS_TABSTOP | BS_DEFPUSHBUTTON as u32,
+            40,
+            359,
+            154,
+            40,
+            CONNECT,
+        );
+        self.control(
+            "BUTTON",
+            "断开连接",
+            WS_TABSTOP | BS_PUSHBUTTON as u32,
+            204,
+            359,
+            151,
+            40,
+            DISCONNECT,
+        );
+        let title = self.control("STATIC", "网络状态", SS_CENTERIMAGE, 412, 149, 220, 24, 0);
+        self.controls.last_mut().unwrap().font = Font::Heading;
+        self.state = self.control("STATIC", "正在连接", SS_CENTERIMAGE, 412, 186, 240, 26, 0);
+        self.controls.last_mut().unwrap().font = Font::Heading;
+        self.status = self.control(
+            "EDIT",
+            "正在连接后台服务…",
+            WS_TABSTOP | ES_MULTILINE as u32 | ES_AUTOVSCROLL as u32 | ES_READONLY as u32,
+            412,
+            219,
+            244,
+            48,
+            0,
+        );
+        self.panel_controls.extend([title, self.state, self.status]);
+        for (i, label, y) in [(0, "网卡", 296), (2, "IPv4", 329)] {
+            let caption = self.control("STATIC", label, SS_CENTERIMAGE, 412, y, 48, 23, 0);
+            self.network[i] = self.control(
+                "EDIT",
+                "—",
+                WS_TABSTOP | ES_READONLY as u32 | ES_AUTOHSCROLL as u32,
+                468,
+                y + 2,
+                188,
+                21,
+                0,
+            );
+            self.panel_controls.extend([caption, self.network[i]]);
+            self.muted_controls.push(caption);
+        }
+        self.control(
+            "BUTTON",
+            "设置与更多",
+            WS_TABSTOP,
+            574,
+            43,
+            106,
+            36,
+            SETTINGS,
+        );
+        self.main_controls = self.controls[main_start..].iter().map(|c| c.hwnd).collect();
+
+        let settings_start = self.controls.len();
+        self.control("BUTTON", "返回", WS_TABSTOP, 574, 43, 106, 36, BACK);
+        self.control("STATIC", "连接设置", SS_CENTERIMAGE, 40, 128, 200, 24, 0);
+        self.controls.last_mut().unwrap().font = Font::Heading;
+        self.auto_auth = self.control(
+            "BUTTON",
+            "启动后自动认证",
+            WS_TABSTOP | BS_AUTOCHECKBOX as u32,
+            40,
+            164,
+            260,
+            24,
+            AUTO_AUTH,
+        );
+        self.manual = self.control(
+            "BUTTON",
+            "手动选择网卡",
+            WS_TABSTOP | BS_AUTOCHECKBOX as u32,
+            40,
+            196,
+            260,
+            24,
+            MANUAL,
+        );
         self.iface = self.control(
             "COMBOBOX",
             "",
@@ -534,84 +616,53 @@ impl Window {
                 | CBS_OWNERDRAWFIXED as u32
                 | CBS_HASSTRINGS as u32
                 | WS_VSCROLL,
-            78,
-            106,
-            262,
-            220,
+            40,
+            228,
+            315,
+            210,
             0,
         );
-        self.manual = self.control(
-            "BUTTON",
-            "手动选择网卡",
-            WS_TABSTOP | BS_AUTOCHECKBOX as u32,
-            28,
-            138,
-            158,
-            24,
-            MANUAL,
+        let hint = self.control(
+            "STATIC",
+            "修改网卡后，返回首页点击认证以应用。",
+            SS_CENTERIMAGE,
+            40,
+            261,
+            315,
+            22,
+            0,
         );
-        self.auto_auth = self.control(
-            "BUTTON",
-            "启动后自动认证",
-            WS_TABSTOP | BS_AUTOCHECKBOX as u32,
-            192,
-            138,
-            148,
-            24,
-            AUTO_AUTH,
-        );
-        for (id, label, x, style) in [
-            (CONNECT, "认证", 28, BS_DEFPUSHBUTTON),
-            (DISCONNECT, "断开连接", 134, BS_PUSHBUTTON),
-            (QUIT, "退出程序", 240, BS_PUSHBUTTON),
-        ] {
-            self.control(
-                "BUTTON",
-                label,
-                WS_TABSTOP | style as u32,
-                x,
-                184,
-                100,
-                30,
-                id,
-            );
-        }
-        self.state = self.control("STATIC", "正在连接", SS_CENTERIMAGE, 392, 42, 288, 26, 0);
+        self.muted_controls.push(hint);
+        self.control("STATIC", "网络详情", SS_CENTERIMAGE, 40, 293, 200, 24, 0);
         self.controls.last_mut().unwrap().font = Font::Heading;
-        self.status = self.control(
-            "EDIT",
-            "正在连接后台服务…",
-            WS_TABSTOP | ES_MULTILINE as u32 | ES_AUTOVSCROLL as u32 | ES_READONLY as u32,
-            14,
-            380,
-            692,
-            20,
-            0,
-        );
-        for (i, label) in ["网卡", "驱动", "IPv4", "MAC", "网关", "DNS"]
-            .iter()
-            .enumerate()
-        {
-            let y = 84 + i as i32 * 23;
-            self.control("STATIC", label, SS_CENTERIMAGE, 380, y, 44, 23, 0);
+        for (i, label, y) in [
+            (1, "驱动", 322),
+            (3, "MAC", 345),
+            (4, "网关", 368),
+            (5, "DNS", 391),
+        ] {
+            let caption = self.control("STATIC", label, SS_CENTERIMAGE, 40, y, 48, 21, 0);
             self.network[i] = self.control(
                 "EDIT",
                 "—",
                 WS_TABSTOP | ES_READONLY as u32 | ES_AUTOHSCROLL as u32,
-                432,
-                y + 3,
-                248,
+                95,
+                y + 1,
+                260,
                 20,
                 0,
             );
+            self.muted_controls.push(caption);
         }
+        self.control("STATIC", "应用设置", SS_CENTERIMAGE, 390, 128, 200, 24, 0);
+        self.controls.last_mut().unwrap().font = Font::Heading;
         self.login = self.control(
             "BUTTON",
             "开机启动界面",
             WS_TABSTOP | BS_AUTOCHECKBOX as u32,
-            28,
-            272,
-            158,
+            390,
+            164,
+            270,
             24,
             LOGIN,
         );
@@ -619,9 +670,9 @@ impl Window {
             "BUTTON",
             "启动时隐藏窗口",
             WS_TABSTOP | BS_AUTOCHECKBOX as u32,
-            192,
-            272,
-            148,
+            390,
+            194,
+            270,
             24,
             HIDE,
         );
@@ -629,9 +680,9 @@ impl Window {
             "BUTTON",
             "认证状态通知",
             WS_TABSTOP | BS_AUTOCHECKBOX as u32,
-            28,
-            302,
-            158,
+            390,
+            224,
+            270,
             24,
             NOTIFY,
         );
@@ -639,9 +690,9 @@ impl Window {
             "BUTTON",
             "自动检查更新",
             WS_TABSTOP | BS_AUTOCHECKBOX as u32,
-            192,
-            302,
-            148,
+            390,
+            254,
+            270,
             24,
             AUTO_UPDATE,
         );
@@ -649,9 +700,9 @@ impl Window {
             "BUTTON",
             "有新版本时通知",
             WS_TABSTOP | BS_AUTOCHECKBOX as u32,
-            28,
-            332,
-            158,
+            390,
+            284,
+            270,
             24,
             UPDATE_NOTIFY,
         );
@@ -659,82 +710,26 @@ impl Window {
             "STATIC",
             &format!("当前版本 v{}", env!("NETAUTH_APP_VERSION")),
             SS_CENTERIMAGE | SS_ENDELLIPSIS,
-            380,
-            270,
-            312,
-            26,
+            390,
+            315,
+            290,
+            24,
             0,
         );
-        for (id, label, x, y) in [
-            (UPDATE, "检查更新", 380, 330),
-            (LOGS, "运行日志", 486, 330),
-            (RELEASE, "更新日志", 592, 330),
+        self.muted_controls.push(self.update);
+        for (id, label, x) in [
+            (UPDATE, "检查更新", 390),
+            (LOGS, "运行日志", 489),
+            (RELEASE, "更新日志", 588),
         ] {
-            self.control("BUTTON", label, WS_TABSTOP, x, y, 100, 26, id);
+            self.control("BUTTON", label, WS_TABSTOP, x, 351, 92, 34, id);
         }
-        // Checkboxes share two tracks across the account and settings panels.
-        self.grid(
-            [28, 138, 312, 24],
-            2,
-            1,
-            [8, 6],
-            &[(self.manual, 0, 0), (self.auto_auth, 0, 1)],
-        );
-        self.grid(
-            [28, 272, 312, 84],
-            2,
-            3,
-            [8, 6],
-            &[
-                (self.login, 0, 0),
-                (self.hidden, 0, 1),
-                (self.notify, 1, 0),
-                (self.auto_update, 1, 1),
-                (self.update_notify, 2, 0),
-            ],
-        );
-        let handle = |id| unsafe { GetDlgItem(self.hwnd, id as i32) };
-        let account_actions = [
-            (handle(CONNECT), 0, 0),
-            (handle(DISCONNECT), 0, 1),
-            (handle(QUIT), 0, 2),
-        ];
-        let info_actions = [
-            (handle(UPDATE), 0, 0),
-            (handle(LOGS), 0, 1),
-            (handle(RELEASE), 0, 2),
-        ];
-        self.grid([28, 184, 312, 30], 3, 1, [8, 8], &account_actions);
-        self.grid([380, 330, 312, 30], 3, 1, [8, 8], &info_actions);
-        // Keep the existing controls and tab order; the header occupies its own row.
-        for control in &mut self.controls {
-            control.bounds[1] += HEADER_HEIGHT;
-            if let Some((grid, _, _)) = &mut control.grid {
-                grid.bounds[1] += HEADER_HEIGHT;
-            }
-        }
-        self.control("STATIC", "SYSU NetAuth", SS_CENTERIMAGE, 18, 0, 300, 32, 0);
-        self.controls.last_mut().unwrap().font = Font::Brand;
-        self.brand_caption = self.control(
-            "STATIC",
-            "CAMPUS NETWORK  /  WINDOWS CLIENT",
-            SS_CENTERIMAGE,
-            20,
-            33,
-            360,
-            18,
-            0,
-        );
-        self.brand_mark = self.control(
-            "STATIC",
-            "●  802.1X  /  WIRED",
-            SS_CENTERIMAGE,
-            548,
-            15,
-            160,
-            22,
-            0,
-        );
+        self.control("BUTTON", "退出程序", WS_TABSTOP, 588, 396, 92, 32, QUIT);
+        self.settings_controls = self.controls[settings_start..]
+            .iter()
+            .map(|c| c.hwnd)
+            .collect();
+        self.show_settings(false);
         self.update_options();
         self.update_actions(false, false);
         self.layout(self.dpi);
@@ -1013,7 +1008,7 @@ impl Window {
     fn update_snapshot(&mut self, snapshot: Snapshot) {
         self.subscription_connected = true;
         self.refresh_adapters(&snapshot.adapters);
-        set_text(self.status, "");
+        set_text(self.status, &snapshot.message);
         self.status_style(
             &snapshot.state,
             match snapshot.state {
@@ -1244,6 +1239,8 @@ impl Window {
     }
     fn command(&mut self, id: u16) {
         match id {
+            SETTINGS => self.show_settings(true),
+            BACK => self.show_settings(false),
             CONNECT
                 if self.previous_account.is_none()
                     && !self.preference_pending
@@ -1474,7 +1471,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, message: u32, wparam: usize, lpara
             WM_CTLCOLORSTATIC | WM_CTLCOLORBTN | WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX => {
                 let dc = wparam as HDC;
                 let control = lparam as HWND;
-                let is_status = control == window.state || control == window.status;
+                let is_status = control == window.state;
+                let is_panel = window.panel_controls.contains(&control);
                 let is_field = message == WM_CTLCOLORLISTBOX
                     || control == window.username
                     || control == window.password
@@ -1484,9 +1482,11 @@ unsafe extern "system" fn wndproc(hwnd: HWND, message: u32, wparam: usize, lpara
                         dc,
                         if is_status {
                             window.status_color
-                        } else if control == window.brand_mark && !window.theme.high_contrast {
-                            window.theme.accent_text
-                        } else if control == window.brand_caption && !window.theme.high_contrast {
+                        } else if (control == window.brand_caption
+                            || control == window.status
+                            || window.muted_controls.contains(&control))
+                            && !window.theme.high_contrast
+                        {
                             window.theme.muted
                         } else if IsWindowEnabled(control) == 0 {
                             window.theme.muted
@@ -1500,6 +1500,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, message: u32, wparam: usize, lpara
                             window.status_background
                         } else if is_field {
                             window.theme.field
+                        } else if is_panel {
+                            window.theme.panel
                         } else {
                             window.theme.background
                         },
@@ -1509,6 +1511,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, message: u32, wparam: usize, lpara
                     window.status_brush
                 } else if is_field {
                     window.theme.field_brush
+                } else if is_panel {
+                    window.theme.panel_brush
                 } else {
                     window.theme.background_brush
                 } as isize;
@@ -1552,7 +1556,9 @@ unsafe extern "system" fn wndproc(hwnd: HWND, message: u32, wparam: usize, lpara
                 }
                 return 0;
             }
-            DM_GETDEFID => return ((DC_HASDEFID as usize) << 16 | CONNECT as usize) as isize,
+            DM_GETDEFID if !window.settings_open => {
+                return ((DC_HASDEFID as usize) << 16 | CONNECT as usize) as isize;
+            }
             APP_EVENT => {
                 window.events();
                 return 0;
@@ -1562,6 +1568,14 @@ unsafe extern "system" fn wndproc(hwnd: HWND, message: u32, wparam: usize, lpara
                 return 0;
             }
             WM_COMMAND => {
+                let notification = (wparam >> 16) as u16;
+                if (lparam as HWND == window.username || lparam as HWND == window.password)
+                    && (notification == EN_SETFOCUS as u16 || notification == EN_KILLFOCUS as u16)
+                {
+                    unsafe {
+                        InvalidateRect(hwnd, ptr::null(), 1);
+                    }
+                }
                 window.command((wparam & 0xffff) as u16);
                 window.update_authentication_button();
                 return 0;
@@ -1662,7 +1676,7 @@ pub fn run() -> Result<()> {
             0,
             class.as_ptr(),
             wide(format!("SYSU NetAuth · v{}", env!("NETAUTH_APP_VERSION"))).as_ptr(),
-            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
+            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
             CLIENT_WIDTH,
@@ -1800,7 +1814,7 @@ mod tests {
                     env!("NETAUTH_APP_VERSION")
                 ))
                 .as_ptr(),
-                WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
+                WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_CLIPCHILDREN,
                 80,
                 80,
                 CLIENT_WIDTH,
@@ -1864,12 +1878,6 @@ mod tests {
                 for dpi in [96, 144, 192] {
                     window.layout(dpi);
                     ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-                    RedrawWindow(
-                        hwnd,
-                        ptr::null(),
-                        ptr::null_mut(),
-                        RDW_INVALIDATE | RDW_ERASE | RDW_UPDATENOW | RDW_ALLCHILDREN,
-                    );
                     let width = scaled(CLIENT_WIDTH, dpi);
                     let height = scaled(CLIENT_HEIGHT, dpi);
                     // The monitor keeps its actual DPI while we review logical layouts.
@@ -1887,46 +1895,60 @@ mod tests {
                         outer.bottom - outer.top + height - client.bottom,
                         SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
                     );
-                    let dc = GetDC(hwnd);
-                    let capture = CreateCompatibleDC(dc);
-                    let bitmap = CreateCompatibleBitmap(dc, width, height);
-                    let old = SelectObject(capture, bitmap);
-                    assert_ne!(PrintWindow(hwnd, capture, 1), 0);
-                    SelectObject(capture, old);
-                    let mut info: BITMAPINFO = mem::zeroed();
-                    info.bmiHeader.biSize = mem::size_of::<BITMAPINFOHEADER>() as u32;
-                    info.bmiHeader.biWidth = width;
-                    info.bmiHeader.biHeight = -height;
-                    info.bmiHeader.biPlanes = 1;
-                    info.bmiHeader.biBitCount = 32;
-                    let mut pixels = vec![0u8; (width * height * 4) as usize];
-                    assert_ne!(
-                        GetDIBits(
-                            capture,
-                            bitmap,
-                            0,
-                            height as u32,
-                            pixels.as_mut_ptr().cast(),
-                            &mut info,
-                            DIB_RGB_COLORS
-                        ),
-                        0
-                    );
-                    let mut file = Vec::new();
-                    file.extend_from_slice(b"BM");
-                    file.extend_from_slice(&(54 + pixels.len() as u32).to_le_bytes());
-                    file.extend_from_slice(&[0; 4]);
-                    file.extend_from_slice(&54u32.to_le_bytes());
-                    file.extend_from_slice(std::slice::from_raw_parts(
-                        (&info.bmiHeader as *const BITMAPINFOHEADER).cast::<u8>(),
-                        40,
-                    ));
-                    file.extend_from_slice(&pixels);
-                    std::fs::write(folder.join(format!("windows-{appearance}-{dpi}.bmp")), file)
+                    for (view, settings) in [("main", false), ("settings", true)] {
+                        window.show_settings(settings);
+                        assert_eq!(IsWindowVisible(window.username) != 0, !settings);
+                        assert_eq!(IsWindowVisible(window.manual) != 0, settings);
+                        RedrawWindow(
+                            hwnd,
+                            ptr::null(),
+                            ptr::null_mut(),
+                            RDW_INVALIDATE | RDW_ERASE | RDW_UPDATENOW | RDW_ALLCHILDREN,
+                        );
+                        let dc = GetDC(hwnd);
+                        let capture = CreateCompatibleDC(dc);
+                        let bitmap = CreateCompatibleBitmap(dc, width, height);
+                        let old = SelectObject(capture, bitmap);
+                        assert_ne!(PrintWindow(hwnd, capture, 1), 0);
+                        SelectObject(capture, old);
+                        let mut info: BITMAPINFO = mem::zeroed();
+                        info.bmiHeader.biSize = mem::size_of::<BITMAPINFOHEADER>() as u32;
+                        info.bmiHeader.biWidth = width;
+                        info.bmiHeader.biHeight = -height;
+                        info.bmiHeader.biPlanes = 1;
+                        info.bmiHeader.biBitCount = 32;
+                        let mut pixels = vec![0u8; (width * height * 4) as usize];
+                        assert_ne!(
+                            GetDIBits(
+                                capture,
+                                bitmap,
+                                0,
+                                height as u32,
+                                pixels.as_mut_ptr().cast(),
+                                &mut info,
+                                DIB_RGB_COLORS
+                            ),
+                            0
+                        );
+                        let mut file = Vec::new();
+                        file.extend_from_slice(b"BM");
+                        file.extend_from_slice(&(54 + pixels.len() as u32).to_le_bytes());
+                        file.extend_from_slice(&[0; 4]);
+                        file.extend_from_slice(&54u32.to_le_bytes());
+                        file.extend_from_slice(std::slice::from_raw_parts(
+                            (&info.bmiHeader as *const BITMAPINFOHEADER).cast::<u8>(),
+                            40,
+                        ));
+                        file.extend_from_slice(&pixels);
+                        std::fs::write(
+                            folder.join(format!("windows-{appearance}-{view}-{dpi}.bmp")),
+                            file,
+                        )
                         .unwrap();
-                    DeleteObject(bitmap);
-                    DeleteDC(capture);
-                    ReleaseDC(hwnd, dc);
+                        DeleteObject(bitmap);
+                        DeleteDC(capture);
+                        ReleaseDC(hwnd, dc);
+                    }
                 }
             }
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
